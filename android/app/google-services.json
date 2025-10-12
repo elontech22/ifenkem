@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "682394135411",
+    "project_id": "ifenkem-8fd35",
+    "storage_bucket": "ifenkem-8fd35.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:682394135411:android:17850a02c900838e07f306",
+        "android_client_info": {
+          "package_name": "com.elontechnology.ifenkem"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCg9D0zs1juQ7dZBVq0BE0s_Rcf5c36yd4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
