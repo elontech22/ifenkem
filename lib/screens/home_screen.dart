@@ -50,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     if (images == null || images.isEmpty) return;
 
+    // Maximum 5 images per user per story
     if (images.length > 5) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("You can upload a maximum of 5 images.")),
@@ -57,8 +58,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return;
     }
 
+    // Reference to user's stories collection
+    final storiesRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(loggedInUser!.uid)
+        .collection('stories');
+
+    // Get the latest story from last 24 hours
+    final now = Timestamp.now();
+    final oneDayAgo = Timestamp.fromDate(
+      DateTime.now().subtract(const Duration(hours: 24)),
+    );
+    final querySnapshot = await storiesRef
+        .where('timestamp', isGreaterThan: oneDayAgo)
+        .orderBy('timestamp', descending: true)
+        .limit(1)
+        .get();
+
     List<String> downloadUrls = [];
 
+    // Upload images to Firebase Storage
     for (var img in images) {
       final ref = FirebaseStorage.instance.ref().child(
         'stories/${loggedInUser!.uid}/${DateTime.now().millisecondsSinceEpoch}',
@@ -68,22 +87,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       downloadUrls.add(url);
     }
 
-    // Save story to Firestore
-    final storyDoc = FirebaseFirestore.instance
-        .collection('users')
-        .doc(loggedInUser!.uid)
-        .collection('stories')
-        .doc();
-
-    await storyDoc.set({
-      'userId': loggedInUser!.uid,
-      'userName': loggedInUser!.name,
-      'location': loggedInUser!.location,
-      'gender': loggedInUser!.gender,
-      'imageUrls': downloadUrls,
-      'timestamp': Timestamp.now(),
-      'viewers': [],
-    });
+    if (querySnapshot.docs.isNotEmpty) {
+      // Append images to existing story
+      final existingStoryDoc = querySnapshot.docs.first.reference;
+      await existingStoryDoc.update({
+        'imageUrls': FieldValue.arrayUnion(downloadUrls),
+        'timestamp': now, // update timestamp
+      });
+    } else {
+      // Create new story document
+      final storyDoc = storiesRef.doc();
+      await storyDoc.set({
+        'userId': loggedInUser!.uid,
+        'userName': loggedInUser!.name,
+        'location': loggedInUser!.location,
+        'gender': loggedInUser!.gender,
+        'imageUrls': downloadUrls,
+        'timestamp': now,
+        'viewers': [],
+      });
+    }
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text("Story uploaded successfully!")),
@@ -143,16 +166,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             )
             .snapshots(),
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Text(
+                "Error loading stories",
+                style: TextStyle(color: Colors.red),
+              ),
+            );
+          }
+
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final stories = snapshot.data!.docs.map((doc) {
-            return StoryModel.fromMap(
+          // 🟢 Map stories by userId to ensure only one tile per user
+          Map<String, StoryModel> userStories = {};
+          for (var doc in snapshot.data!.docs) {
+            final story = StoryModel.fromMap(
               doc.data() as Map<String, dynamic>,
               doc.id,
             );
-          }).toList();
+
+            // Keep only the latest story per user
+            if (!userStories.containsKey(story.userId) ||
+                story.timestamp.toDate().isAfter(
+                  userStories[story.userId]!.timestamp.toDate(),
+                )) {
+              userStories[story.userId] = story;
+            }
+          }
+
+          final stories = userStories.values.toList();
 
           return ListView.builder(
             scrollDirection: Axis.horizontal,
@@ -163,7 +207,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 // Upload story button
                 return GestureDetector(
                   onTap: () async {
-                    await _pickAndUploadStory();
+                    try {
+                      await _pickAndUploadStory();
+                    } catch (e) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("Failed to upload story: $e")),
+                      );
+                    }
                   },
                   child: Container(
                     margin: const EdgeInsets.symmetric(
@@ -186,14 +236,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               }
 
               final story = stories[index - 1];
+
               return GestureDetector(
-                onTap: () {
-                  Navigator.push(
+                onTap: () async {
+                  // 🟢 Open Story Viewer and wait for deletion result
+                  final deleted = await Navigator.push<bool>(
                     context,
                     MaterialPageRoute(
                       builder: (_) => StoryViewerScreen(story: story),
                     ),
                   );
+
+                  // 🟢 If the user deleted this story, refresh the list instantly
+                  if (deleted == true) {
+                    setState(() {}); // refresh top bar
+                  }
                 },
                 child: Container(
                   margin: const EdgeInsets.symmetric(
@@ -205,42 +262,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       CircleAvatar(
                         radius: 30,
                         backgroundColor: Colors.grey[300],
-                        // ✅ WRAP NetworkImage IN TRY/CATCH
-                        child: Builder(
-                          builder: (context) {
-                            try {
-                              if (story.imageUrls.isNotEmpty) {
-                                return ClipOval(
-                                  child: Image.network(
-                                    story.imageUrls[0],
-                                    width: 60,
-                                    height: 60,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      // ✅ Fallback if network fails
-                                      return const Icon(
+                        child: story.imageUrls.isNotEmpty
+                            ? ClipOval(
+                                child: Image.network(
+                                  story
+                                      .imageUrls[0], // only first image shown in the tile
+                                  width: 60,
+                                  height: 60,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      const Icon(
                                         Icons.broken_image,
                                         color: Colors.white,
-                                      );
-                                    },
-                                  ),
-                                );
-                              } else {
-                                // ✅ Fallback for empty imageUrls
-                                return const Icon(
-                                  Icons.image,
-                                  color: Colors.white,
-                                );
-                              }
-                            } catch (e) {
-                              // ✅ Catch any other errors
-                              return const Icon(
-                                Icons.error,
-                                color: Colors.white,
-                              );
-                            }
-                          },
-                        ),
+                                      ),
+                                ),
+                              )
+                            : const Icon(Icons.image, color: Colors.white),
                       ),
                       const SizedBox(height: 4),
                       Text(

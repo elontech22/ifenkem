@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:ifenkem/models/storymodel.dart';
 import 'package:ifenkem/models/user_model.dart';
@@ -56,6 +57,77 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
     }
   }
 
+  Future<void> _deleteAllStories() async {
+    try {
+      final storiesRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.story.userId)
+          .collection('stories');
+
+      final storiesSnapshot = await storiesRef.get();
+
+      for (var doc in storiesSnapshot.docs) {
+        final data = doc.data();
+        if (data['imageUrls'] != null) {
+          for (String url in List<String>.from(data['imageUrls'])) {
+            try {
+              final ref = FirebaseStorage.instance.refFromURL(url);
+              await ref.delete();
+            } catch (e) {
+              print("Error deleting image from storage: $e");
+            }
+          }
+        }
+        await doc.reference.delete();
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("All your stories were deleted!")),
+      );
+
+      Navigator.pop(context); // Close viewer
+    } catch (e) {
+      print("Error deleting all stories: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Failed to delete all stories.")),
+      );
+    }
+  }
+
+  Future<void> _deleteSingleStory() async {
+    try {
+      final storyRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.story.userId)
+          .collection('stories')
+          .doc(widget.story.id);
+
+      // Delete images from Firebase Storage
+      for (String url in widget.story.imageUrls) {
+        try {
+          final ref = FirebaseStorage.instance.refFromURL(url);
+          await ref.delete();
+        } catch (e) {
+          print("Error deleting image from storage: $e");
+        }
+      }
+
+      // Delete Firestore document
+      await storyRef.delete();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Story deleted successfully!")),
+      );
+
+      Navigator.pop(context); // Close viewer
+    } catch (e) {
+      print("Error deleting story: $e");
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Failed to delete story.")));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
@@ -70,6 +142,32 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
       ),
       body: Stack(
         children: [
+          if (widget.story.userId == viewer?.uid)
+            Positioned(
+              top: 20,
+              right: 20,
+              child: PopupMenuButton<String>(
+                icon: const Icon(Icons.delete, color: Colors.red, size: 30),
+                onSelected: (value) async {
+                  if (value == 'single') {
+                    await _deleteSingleStory();
+                  } else if (value == 'all') {
+                    await _deleteAllStories();
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'single',
+                    child: Text('Delete this story'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'all',
+                    child: Text('Delete all my stories'),
+                  ),
+                ],
+              ),
+            ),
+
           // 🟢 Story Viewer
           StoryView(
             storyItems: widget.story.imageUrls.map((url) {
