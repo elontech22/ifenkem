@@ -7,6 +7,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:ifenkem/models/storymodel.dart';
 import 'package:ifenkem/screens/Chat_Screen.dart';
 import 'package:ifenkem/screens/StoryViewerScreen.dart';
+import 'package:ifenkem/widgets/OnboardingSlides.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:ifenkem/models/user_model.dart';
@@ -152,6 +153,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _requestNotificationPermission() async {
+    // Ask Firebase for permission (Android 13+ and iOS)
+    await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    // Ask OS-level permission (for completeness)
+    final status = await Permission.notification.status;
+    if (status.isGranted) return;
+
+    if (status.isDenied || status.isRestricted) {
+      final granted = await Permission.notification.request();
+
+      if (granted.isPermanentlyDenied && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please enable notifications from Settings to receive updates.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildStoriesBar() {
     return SizedBox(
       height: 100,
@@ -169,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           if (snapshot.hasError) {
             return Center(
               child: Text(
-                "Error loading stories",
+                "Register or Login above to get started ",
                 style: TextStyle(color: Colors.red),
               ),
             );
@@ -299,61 +327,42 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // ---------------------------------------------------
 
   //  Added: Request notification permission after user reaches HomeScreen
-  Future<void> _requestNotificationPermission() async {
-    // 1️⃣ Ask Firebase Messaging directly (important for Android 13+)
-    await FirebaseMessaging.instance.requestPermission();
-
-    // 2️⃣ Ask OS-level permission (covers extra edge cases on iOS/Android)
-    final status = await Permission.notification.status;
-    if (status.isGranted) return;
-
-    if (status.isDenied || status.isRestricted) {
-      final granted = await Permission.notification.request();
-
-      if (granted.isPermanentlyDenied && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please enable notifications from Settings to receive updates.',
-            ),
-          ),
-        );
-      }
-    }
-  }
-
-  //  End added section
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadLoggedInUser();
 
-    // Load Interstitial only for non-premium users
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    // Load Interstitial only for non-premium users
     if (!(authProvider.currentUser?.isPremium ?? false)) {
       _loadInterstitialAd();
     }
 
-    //  START LISTENING FOR NEW MESSAGES ON HOMESCREEN
-    final localService = Provider.of<LocalNotificationService>(
-      context,
-      listen: false,
-    );
+    // 🔹 Ask for permission FIRST, after login
     if (authProvider.currentUser != null) {
-      localService.startListening(authProvider.currentUser!.uid);
+      _requestNotificationPermission().then((_) {
+        // ✅ Start listening after permission request completes
+        final localService = Provider.of<LocalNotificationService>(
+          context,
+          listen: false,
+        );
+        localService.startListening(authProvider.currentUser!.uid);
+      });
     } else {
-      authProvider.addListener(() {
+      // Handle delayed login case
+      authProvider.addListener(() async {
         final user = authProvider.currentUser;
         if (user != null) {
+          await _requestNotificationPermission();
+          final localService = Provider.of<LocalNotificationService>(
+            context,
+            listen: false,
+          );
           localService.startListening(user.uid);
         }
       });
-    }
-    //  END
-    if (authProvider.currentUser != null) {
-      _requestNotificationPermission(); // ask only after login
     }
   }
 
@@ -638,12 +647,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               }
                               if (!snapshot.hasData ||
                                   snapshot.data!.docs.isEmpty) {
-                                return const Center(
-                                  child: Text(
-                                    "No profiles found",
-                                    style: TextStyle(color: Colors.grey),
-                                  ),
-                                );
+                                return OnboardingSlides();
                               }
 
                               final allProfiles = snapshot.data!.docs.map((

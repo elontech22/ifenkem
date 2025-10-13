@@ -12,6 +12,7 @@ import '../providers/auth_provider.dart';
 import '../screens/chat_screen.dart';
 import '../screens/login_screen.dart';
 import '../utils/app_theme.dart';
+import 'package:intl/intl.dart'; // 🟢 For formatting time
 
 class StoryViewerScreen extends StatefulWidget {
   final StoryModel story;
@@ -37,6 +38,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
     super.dispose();
   }
 
+  // 🟢 Mark story as viewed and store viewer UID
   Future<void> _markStoryAsViewed() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final viewer = authProvider.currentUser;
@@ -57,6 +59,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
     }
   }
 
+  // 🟢 Delete all stories of the current user
   Future<void> _deleteAllStories() async {
     try {
       final storiesRef = FirebaseFirestore.instance
@@ -85,7 +88,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
         const SnackBar(content: Text("All your stories were deleted!")),
       );
 
-      Navigator.pop(context); // Close viewer
+      Navigator.pop(context, true); // 🟢 Return true to refresh story bar
     } catch (e) {
       print("Error deleting all stories: $e");
       ScaffoldMessenger.of(context).showSnackBar(
@@ -94,6 +97,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
     }
   }
 
+  // 🟢 Delete a single story
   Future<void> _deleteSingleStory() async {
     try {
       final storyRef = FirebaseFirestore.instance
@@ -119,12 +123,27 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
         const SnackBar(content: Text("Story deleted successfully!")),
       );
 
-      Navigator.pop(context); // Close viewer
+      Navigator.pop(context, true); // 🟢 Return true to refresh story bar
     } catch (e) {
       print("Error deleting story: $e");
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text("Failed to delete story.")));
+    }
+  }
+
+  // 🟢 Format timestamp like WhatsApp
+  String _formatTimestamp(Timestamp timestamp) {
+    final now = DateTime.now();
+    final postTime = timestamp.toDate();
+    final difference = now.difference(postTime);
+
+    if (difference.inDays == 0) {
+      return "Today ${DateFormat.jm().format(postTime)}";
+    } else if (difference.inDays == 1) {
+      return "Yesterday ${DateFormat.jm().format(postTime)}";
+    } else {
+      return DateFormat('dd MMM yyyy, hh:mm a').format(postTime);
     }
   }
 
@@ -138,36 +157,44 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: AppTheme.primaryColor,
-        title: const Text("Story"),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.story.userName),
+            // 🟢 Display timestamp
+            Text(
+              _formatTimestamp(widget.story.timestamp),
+              style: const TextStyle(fontSize: 12, color: Colors.white70),
+            ),
+          ],
+        ),
+        actions: [
+          // 🟢 Show delete menu only for story owner
+          if (widget.story.userId == viewer?.uid)
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.delete, color: Colors.red),
+              onSelected: (value) async {
+                if (value == 'single') {
+                  await _deleteSingleStory();
+                } else if (value == 'all') {
+                  await _deleteAllStories();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'single',
+                  child: Text('Delete this story'),
+                ),
+                const PopupMenuItem(
+                  value: 'all',
+                  child: Text('Delete all my stories'),
+                ),
+              ],
+            ),
+        ],
       ),
       body: Stack(
         children: [
-          if (widget.story.userId == viewer?.uid)
-            Positioned(
-              top: 20,
-              right: 20,
-              child: PopupMenuButton<String>(
-                icon: const Icon(Icons.delete, color: Colors.red, size: 30),
-                onSelected: (value) async {
-                  if (value == 'single') {
-                    await _deleteSingleStory();
-                  } else if (value == 'all') {
-                    await _deleteAllStories();
-                  }
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'single',
-                    child: Text('Delete this story'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'all',
-                    child: Text('Delete all my stories'),
-                  ),
-                ],
-              ),
-            ),
-
           // 🟢 Story Viewer
           StoryView(
             storyItems: widget.story.imageUrls.map((url) {
@@ -204,7 +231,6 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                 final viewer = authProvider.currentUser;
 
                 if (viewer == null) {
-                  // Not logged in
                   showDialog(
                     context: context,
                     builder: (_) => AlertDialog(
@@ -234,7 +260,6 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                 }
 
                 if (!viewer.isPremium) {
-                  // Not premium
                   showDialog(
                     context: context,
                     builder: (_) => AlertDialog(
@@ -265,7 +290,6 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                   return;
                 }
 
-                // Fetch story owner's full UserModel
                 final userDoc = await FirebaseFirestore.instance
                     .collection('users')
                     .doc(widget.story.userId)
@@ -278,7 +302,6 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                   id: userDoc.id,
                 );
 
-                // Navigate to chat screen
                 Navigator.push(
                   context,
                   MaterialPageRoute(

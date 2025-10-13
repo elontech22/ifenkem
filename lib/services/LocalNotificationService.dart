@@ -289,10 +289,20 @@ class LocalNotificationService extends ChangeNotifier {
       iOS: DarwinNotificationDetails(),
     );
 
+    // await _flutterLocalNotificationsPlugin.show(
+    //   message.hashCode,
+    //   'Update Available 🚀',
+    //   message.notification?.body ?? 'A new version is ready on Play Store!',
+    //   details,
+    // );
+
+    final body =
+        message.data['body'] ?? 'A new version is ready on Play Store!';
+
     await _flutterLocalNotificationsPlugin.show(
       message.hashCode,
       'Update Available 🚀',
-      message.notification?.body ?? 'A new version is ready on Play Store!',
+      body,
       details,
     );
   }

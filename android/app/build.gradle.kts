@@ -27,7 +27,7 @@ android {
         applicationId = "com.elontechnology.ifenkem"
         minSdk = 23
         targetSdk = 35
-        versionCode = 30
+        versionCode = 31
         versionName = "1.0"
     }
 
