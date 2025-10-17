@@ -12,7 +12,7 @@ import '../providers/auth_provider.dart';
 import '../screens/chat_screen.dart';
 import '../screens/login_screen.dart';
 import '../utils/app_theme.dart';
-import 'package:intl/intl.dart'; // 🟢 For formatting time
+import 'package:intl/intl.dart';
 
 class StoryViewerScreen extends StatefulWidget {
   final StoryModel story;
@@ -97,8 +97,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
     }
   }
 
-  // 🟢 Delete a single story
-  Future<void> _deleteSingleStory() async {
+  Future<void> _deleteSingleStory(int currentIndex) async {
     try {
       final storyRef = FirebaseFirestore.instance
           .collection('users')
@@ -106,29 +105,37 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
           .collection('stories')
           .doc(widget.story.id);
 
-      // Delete images from Firebase Storage
-      for (String url in widget.story.imageUrls) {
-        try {
-          final ref = FirebaseStorage.instance.refFromURL(url);
-          await ref.delete();
-        } catch (e) {
-          print("Error deleting image from storage: $e");
-        }
+      List<String> updatedUrls = List<String>.from(widget.story.imageUrls);
+
+      // Delete only the current story image from Storage
+      final urlToDelete = updatedUrls[currentIndex];
+      try {
+        final ref = FirebaseStorage.instance.refFromURL(urlToDelete);
+        await ref.delete();
+      } catch (e) {
+        print("Error deleting image from storage: $e");
       }
 
-      // Delete Firestore document
-      await storyRef.delete();
+      // Remove the image from Firestore array
+      updatedUrls.removeAt(currentIndex);
+
+      // If no images left, delete the whole story document
+      if (updatedUrls.isEmpty) {
+        await storyRef.delete();
+      } else {
+        await storyRef.update({'imageUrls': updatedUrls});
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Story deleted successfully!")),
+        const SnackBar(content: Text("Image deleted successfully!")),
       );
 
-      Navigator.pop(context, true); // 🟢 Return true to refresh story bar
+      Navigator.pop(context, true);
     } catch (e) {
-      print("Error deleting story: $e");
+      print("Error deleting story image: $e");
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text("Failed to delete story.")));
+      ).showSnackBar(const SnackBar(content: Text("Failed to delete image.")));
     }
   }
 
@@ -175,7 +182,9 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
               icon: const Icon(Icons.delete, color: Colors.red),
               onSelected: (value) async {
                 if (value == 'single') {
-                  await _deleteSingleStory();
+                  await _deleteSingleStory(
+                    _storyController.playbackNotifier.value.index,
+                  );
                 } else if (value == 'all') {
                   await _deleteAllStories();
                 }
@@ -210,107 +219,110 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
             },
           ),
 
-          // 🟢 Chat / Upgrade Button
-          Positioned(
-            bottom: 60,
-            left: 20,
-            right: 20,
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.chat),
-              label: const Text("Chat / Upgrade"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.buttonColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-              onPressed: () async {
-                final authProvider = Provider.of<AuthProvider>(
-                  context,
-                  listen: false,
-                );
-                final viewer = authProvider.currentUser;
-
-                if (viewer == null) {
-                  showDialog(
-                    context: context,
-                    builder: (_) => AlertDialog(
-                      title: const Text("Authentication Required"),
-                      content: const Text("Please log in to chat or upgrade."),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text("Cancel"),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const LoginScreen(),
-                              ),
-                            );
-                          },
-                          child: const Text("Login"),
-                        ),
-                      ],
-                    ),
+          // 🟢 Chat / Upgrade Button (only for other users)
+          if (widget.story.userId != viewer?.uid)
+            Positioned(
+              bottom: 60,
+              left: 20,
+              right: 20,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.chat),
+                label: const Text("Chat / Upgrade"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.buttonColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                onPressed: () async {
+                  final authProvider = Provider.of<AuthProvider>(
+                    context,
+                    listen: false,
                   );
-                  return;
-                }
+                  final viewer = authProvider.currentUser;
 
-                if (!viewer.isPremium) {
-                  showDialog(
-                    context: context,
-                    builder: (_) => AlertDialog(
-                      title: const Text("Premium Required"),
-                      content: const Text(
-                        "You must be a premium user to chat.",
+                  if (viewer == null) {
+                    showDialog(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text("Authentication Required"),
+                        content: const Text(
+                          "Please log in to chat or upgrade.",
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text("Cancel"),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const LoginScreen(),
+                                ),
+                              );
+                            },
+                            child: const Text("Login"),
+                          ),
+                        ],
                       ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text("Cancel"),
+                    );
+                    return;
+                  }
+
+                  if (!viewer.isPremium) {
+                    showDialog(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text("Premium Required"),
+                        content: const Text(
+                          "You must be a premium user to chat.",
                         ),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const PremiumScreen(),
-                              ),
-                            );
-                          },
-                          child: const Text("Upgrade to Premium"),
-                        ),
-                      ],
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text("Cancel"),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const PremiumScreen(),
+                                ),
+                              );
+                            },
+                            child: const Text("Upgrade to Premium"),
+                          ),
+                        ],
+                      ),
+                    );
+                    return;
+                  }
+
+                  final userDoc = await FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(widget.story.userId)
+                      .get();
+
+                  if (!userDoc.exists) return;
+
+                  final storyOwner = UserModel.fromMap(
+                    userDoc.data() as Map<String, dynamic>,
+                    id: userDoc.id,
+                  );
+
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ChatScreen(peerUser: storyOwner),
                     ),
                   );
-                  return;
-                }
-
-                final userDoc = await FirebaseFirestore.instance
-                    .collection('users')
-                    .doc(widget.story.userId)
-                    .get();
-
-                if (!userDoc.exists) return;
-
-                final storyOwner = UserModel.fromMap(
-                  userDoc.data() as Map<String, dynamic>,
-                  id: userDoc.id,
-                );
-
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ChatScreen(peerUser: storyOwner),
-                  ),
-                );
-              },
+                },
+              ),
             ),
-          ),
 
           // 🟢 Blur Overlay for non-premium users
           if (!isPremium)

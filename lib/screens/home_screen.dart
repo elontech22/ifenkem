@@ -340,7 +340,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _loadInterstitialAd();
     }
 
-    // 🔹 Ask for permission FIRST, after login
     if (authProvider.currentUser != null) {
       _requestNotificationPermission().then((_) {
         // ✅ Start listening after permission request completes
@@ -624,8 +623,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 onRefresh: _refreshProfiles,
                 child: Column(
                   children: [
-                    _buildSearchBar(),
-                    _buildGenderFilter(),
+                    if (loggedInUser != null) ...[
+                      _buildSearchBar(),
+                      _buildGenderFilter(),
+                    ],
                     _buildStoriesBar(),
 
                     Expanded(

@@ -15,31 +15,35 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   debugPrint("🟢 Background message received: ${message.data}");
-
-  if (message.data['type'] == 'chat_message') {
-    await LocalNotificationService.showFirebaseChatNotification(message);
-  } else if (message.data['type'] == 'like_notification') {
-    await LocalNotificationService.showFirebaseLikeNotification(message);
-  } else if (message.data['type'] == 'update_notification') {
-    await LocalNotificationService.showFirebaseUpdateNotification(message);
-  }
 }
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase
+  // 1. Initialize Firebase first
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Initialize Google Mobile Ads
+  //  2. Ask for notification permission early (important)
+  // final fcm = FirebaseMessaging.instance;
+  // final settings = await fcm.requestPermission(
+  //   alert: true,
+  //   badge: true,
+  //   sound: true,
+  // );
+  // debugPrint(
+  //   '🟢 Notification permission status: ${settings.authorizationStatus}',
+  // );
+
+  // 3. Initialize Google Mobile Ads
   await MobileAds.instance.initialize();
 
-  // ✅ Register background message handler
+  //  4. Register background FCM message handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-  // Initialize Local Notifications & foreground listeners
+  //  5. Initialize local notifications
   await LocalNotificationService.initialize();
 
+  //  6. Run the app with providers
   runApp(
     MultiProvider(
       providers: [
